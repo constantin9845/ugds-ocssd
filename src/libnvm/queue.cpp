@@ -32,6 +32,30 @@ int nvm_queue_clear(nvm_queue_t* queue, const nvm_ctrl_t* ctrl, bool cq, uint16_
     queue->cid_ticket = 0;
 
     queue->db = (cq ? CQ_DBL(ctrl->mm_ptr, queue->no, ctrl->dstrd) : SQ_DBL(ctrl->mm_ptr, queue->no, ctrl->dstrd));
+
+    fprintf(stderr,
+        "[QUEUE DEBUG] type=%s qid=%u mm_ptr=%p db=%p "
+        "offset=0x%lx dstrd=%zu\n",
+        cq ? "CQ" : "SQ",
+        queue->no,
+        (void*)ctrl->mm_ptr,
+        (void*)queue->db,
+        (unsigned long)((uintptr_t)queue->db -
+                        (uintptr_t)ctrl->mm_ptr),
+        (size_t)ctrl->dstrd);
+
+    fprintf(stderr,
+        "[QUEUE DEBUG] %s qid=%u dstrd=%zu mm_ptr=%p db=%p "
+        "offset=0x%tx qs=%u es=%u\n",
+        cq ? "CQ" : "SQ",
+        queue->no,
+        ctrl->dstrd,
+        (void*)ctrl->mm_ptr,
+        (void*)queue->db,
+        (char*)queue->db - (char*)ctrl->mm_ptr,
+        queue->qs,
+        queue->es);
+
     queue->vaddr = vaddr;
     queue->ioaddr = ioaddr;
     

@@ -158,10 +158,16 @@ nvm_cpl_t* nvm_cq_dequeue_block(nvm_queue_t* cq, uint64_t timeout);
  * The caller must make sure that all commands are prepared before calling
  * this.
  */
+
+#include <cstdio>
+
 static inline
 void nvm_sq_submit(nvm_queue_t* sq)
 {
-    if (sq->last != sq->tail && sq->db != NULL)
+
+    uint32_t tail = sq->tail.load();
+
+    if (sq->last != tail && sq->db != NULL)
     {
         if (sq->local)
         {
@@ -173,8 +179,32 @@ void nvm_sq_submit(nvm_queue_t* sq)
             nvm_wcb_flush(); 
         }
 
-        *((volatile uint32_t*) sq->db) = sq->tail;
-        sq->last = sq->tail;
+	uint32_t cmd_idx = (tail + sq->qs - 1) % sq->qs;
+        nvm_cmd_t* cmd = &((nvm_cmd_t*)sq->vaddr)[cmd_idx];
+
+	fprintf(stderr,
+            "[SQ DEBUG] qid=%u head=%u tail=%u last=%u "
+            "db=%p cmd_idx=%u opcode=0x%02x cid=%u\n",
+            sq->no,
+            sq->head.load(),
+            tail,
+            sq->last,
+            (void*)sq->db,
+            cmd_idx,
+            cmd->dword[0] & 0xff,
+            (cmd->dword[0] >> 16) & 0xffff);
+
+	fprintf(stderr,
+            "[SQ DEBUG] ringing doorbell at %p with tail=%u\n",
+            (void*)sq->db, tail);
+
+        *((volatile uint32_t*) sq->db) = tail;
+	sq->last = tail;
+        //sq->last = sq->tail;
+    }
+    else{
+    	fprintf(stderr,
+            "[SQ DEBUG] NOT SUBMITTED: last==tail or db==NULL\n");
     }
 }
 

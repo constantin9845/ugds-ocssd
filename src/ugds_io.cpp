@@ -11,6 +11,12 @@
 
 static nvm_cpl_t* wait_for_completion(HandleState* hs, IOQueuePair& qp)
 {
+
+
+    fprintf(stderr,
+        "uGDS wait: irq_efd=%d timeout=%ld\n",
+        qp.irq_efd, (long)hs->ctrl->timeout);
+
     if (qp.irq_efd < 0) {
         nvm_cpl_t* cpl = nullptr;
         uint64_t spins = 0;
@@ -19,8 +25,19 @@ static nvm_cpl_t* wait_for_completion(HandleState* hs, IOQueuePair& qp)
             if (++spins > max_spins) break;
             __builtin_ia32_pause();
         }
-        return cpl;
-    }
+
+	if (cpl == nullptr) {
+        	fprintf(stderr,
+                	"uGDS timeout: CQ empty after %llu spins\n",
+                	(unsigned long long)spins);
+    	} else {
+        	fprintf(stderr,
+                	"uGDS completion received: cid=%u\n",
+                	cpl->dword[0] & 0xffff);
+    	}
+
+        	return cpl;
+    	}
 
     // Absolute deadline prevents EINTR restarts from stretching total wait.
     const long timeout_ms = (long)hs->ctrl->timeout;
@@ -58,8 +75,18 @@ static nvm_cpl_t* wait_for_completion(HandleState* hs, IOQueuePair& qp)
                     qp.irq_efd, strerror(errno));
             return nullptr;
         }
-        if (pr == 0)
-            return nvm_cq_dequeue(&qp.cq);
+        if (pr == 0){
+	    nvm_cpl_t* cpl = nvm_cq_dequeue(&qp.cq);
+
+	    fprintf(stderr,
+            	"uGDS ppoll timeout: eventfd=%d, CQ completion=%s\n",
+            	qp.irq_efd,
+            	cpl != nullptr ? "present" : "absent");
+
+    	    return cpl;
+
+	   //return nvm_cq_dequeue(&qp.cq);
+	}
 
         if (pfd.revents & (POLLERR | POLLHUP | POLLNVAL)) {
             fprintf(stderr, "uGDS: eventfd=%d invalid, revents=0x%x\n",
@@ -89,14 +116,13 @@ ssize_t do_io_internal(uGDSHandle_t fh, void* bufPtr_base, size_t size,
     if (hs == nullptr || bufPtr_base == nullptr || size == 0) {
         return -EINVAL;
     }
-    if (file_offset < 0 || bufPtr_offset < 0) {
+    if (bufPtr_offset < 0) {
         return -EINVAL;
     }
     if (hs->block_size == 0) {
         return -EINVAL;
     }
-    if ((static_cast<size_t>(file_offset) % hs->block_size) != 0 ||
-        (size % hs->block_size) != 0) {
+    if ((size % hs->block_size) != 0) {
         return -EINVAL;
     }
 
@@ -153,7 +179,8 @@ ssize_t do_io_internal(uGDSHandle_t fh, void* bufPtr_base, size_t size,
         buf_page_start = 0;
     }
 
-    const uint64_t start_lba = static_cast<uint64_t>(file_offset) / hs->block_size;
+    //const uint64_t start_lba = static_cast<uint64_t>(file_offset) / hs->block_size;
+    const uint64_t start_lba = static_cast<uint64_t>(file_offset);
 
     const size_t prp_capacity = page_size / sizeof(uint64_t);
 
@@ -229,6 +256,14 @@ ssize_t do_io_internal(uGDSHandle_t fh, void* bufPtr_base, size_t size,
             uint16_t cid = NVM_DEFAULT_CID(&qp.sq);
             nvm_cmd_header(cmd, cid, opcode, hs->ns_id);
 
+		fprintf(stderr,
+    			"DMA debug: \n\tbuf_dma=%p \n\tcurrent_page=%zu "
+    			"\nt\n_ioaddrs=%zu \n\tioaddr=%llx\n",
+    			(void*)buf_dma,
+    			current_page,
+    			buf_dma->n_ioaddrs,
+    			(unsigned long long)buf_dma->ioaddrs[current_page]);
+
             if (n_pages == 1) {
                 nvm_cmd_data_ptr(cmd, buf_dma->ioaddrs[current_page], 0);
             } else if (n_pages == 2) {
@@ -247,9 +282,40 @@ ssize_t do_io_internal(uGDSHandle_t fh, void* bufPtr_base, size_t size,
                                  qp.prp_dma->ioaddrs[0]);
             }
 
+	    printf("current LBA = %llu\n", (unsigned long long)current_lba);
+
             nvm_cmd_rw_blks(cmd, current_lba, static_cast<uint16_t>(n_blocks));
 
             std::atomic_thread_fence(std::memory_order_seq_cst);
+
+	    fprintf(stderr,
+        "uGDS submit: opcode=0x%02x nsid=%u "
+        "PPA=0x%016llx blocks=%zu chunk=%zu "
+        "page_size=%zu n_pages=%zu "
+        "\n\tPRP1=0x%016llx \n\tPRP2=0x%016llx\n",
+        opcode,
+        hs->ns_id,
+        (unsigned long long)current_lba,
+        n_blocks,
+        chunk_size,
+        page_size,
+        n_pages,
+        (unsigned long long)buf_dma->ioaddrs[current_page],
+        (unsigned long long)(n_pages == 2
+            ? buf_dma->ioaddrs[current_page + 1]
+            : n_pages > 2 ? qp.prp_dma->ioaddrs[0] : 0));
+
+
+	    fprintf(stderr,
+    "\n\tCMD: opcode=%02x nsid=%u "
+    "\nt\DW10=%08x DW11=%08x DW12=%08x "
+    "\n\tPRP1=%08x%08x PRP2=%08x%08x\n",
+    cmd->dword[0] & 0xff,
+    cmd->dword[1],
+    cmd->dword[10], cmd->dword[11], cmd->dword[12],
+    cmd->dword[7], cmd->dword[6],
+    cmd->dword[9], cmd->dword[8]);
+
             nvm_sq_submit(&qp.sq);
             std::atomic_thread_fence(std::memory_order_seq_cst);
 
@@ -268,11 +334,27 @@ ssize_t do_io_internal(uGDSHandle_t fh, void* bufPtr_base, size_t size,
             nvm_sq_update(&qp.sq);
             std::atomic_thread_fence(std::memory_order_seq_cst);
             nvm_cq_update(&qp.cq);
-
+	    /*
             if (status != 0) {
                 result = -EIO;
                 goto out;
             }
+	    */
+
+	    if (status != 0) {
+ 		fprintf(stderr,
+            	"uGDS NVMe completion error: "
+            	"dword3=0x%08x SCT_SC=0x%03x "
+            	"PPA=0x%016llx blocks=%zu opcode=0x%02x\n",
+            	cpl->dword[3],
+            	(unsigned)status,
+            	(unsigned long long)current_lba,
+            	n_blocks,
+            	opcode
+		);
+    		result = -EIO;
+    		goto out;
+	    }
 
             bytes_done += chunk_size;
             current_lba += n_blocks;

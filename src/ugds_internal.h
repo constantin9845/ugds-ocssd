@@ -230,7 +230,7 @@ static inline uGDSError_t make_error(uGDSOpError err) {
 #define UGDS_OK make_error(UGDS_SUCCESS)
 
 ssize_t do_io_internal(uGDSHandle_t fh, void* bufPtr_base, size_t size,
-                       off_t file_offset, off_t bufPtr_offset, uint8_t opcode);
+                       uint64_t file_offset, off_t bufPtr_offset, uint8_t opcode);
 
 struct AsyncRequest {
     uGDSHandle_t    fh;

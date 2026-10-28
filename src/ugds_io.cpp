@@ -109,7 +109,7 @@ static nvm_cpl_t* wait_for_completion(HandleState* hs, IOQueuePair& qp)
 }
 
 ssize_t do_io_internal(uGDSHandle_t fh, void* bufPtr_base, size_t size,
-                       off_t file_offset, off_t bufPtr_offset, uint8_t opcode)
+                       uint64_t file_offset, off_t bufPtr_offset, uint8_t opcode)
 {
     HandleState* hs = static_cast<HandleState*>(fh);
 
@@ -122,9 +122,11 @@ ssize_t do_io_internal(uGDSHandle_t fh, void* bufPtr_base, size_t size,
     if (hs->block_size == 0) {
         return -EINVAL;
     }
+    /*
     if ((size % hs->block_size) != 0) {
         return -EINVAL;
     }
+    */
 
     const size_t page_size = hs->ctrl->page_size;
     if (page_size == 0) {
@@ -398,7 +400,7 @@ ssize_t do_io_internal(uGDSHandle_t fh, void* bufPtr_base, size_t size,
 }
 
 extern "C" ssize_t uGDSRead(uGDSHandle_t fh, void* bufPtr_base, size_t size,
-                              off_t file_offset, off_t bufPtr_offset)
+                              uint64_t file_offset, off_t bufPtr_offset)
 {
     if (fh == nullptr) return -EINVAL;
     std::shared_ptr<HandleState> hs_sp;
@@ -410,7 +412,7 @@ extern "C" ssize_t uGDSRead(uGDSHandle_t fh, void* bufPtr_base, size_t size,
 }
 
 extern "C" ssize_t uGDSWrite(uGDSHandle_t fh, const void* bufPtr_base, size_t size,
-                               off_t file_offset, off_t bufPtr_offset)
+                               uint64_t file_offset, off_t bufPtr_offset)
 {
     if (fh == nullptr) return -EINVAL;
     std::shared_ptr<HandleState> hs_sp;

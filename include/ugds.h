@@ -209,10 +209,10 @@ uGDSError_t uGDSRDMAUnregister(const void* bufPtr_base,
                                 uGDSRDMARegion_t* region);
 
 ssize_t uGDSRead(uGDSHandle_t fh, void* bufPtr_base, size_t size,
-                   off_t file_offset, off_t bufPtr_offset);
+                   uint64_t file_offset, off_t bufPtr_offset);
 
 ssize_t uGDSWrite(uGDSHandle_t fh, const void* bufPtr_base, size_t size,
-                    off_t file_offset, off_t bufPtr_offset);
+                    uint64_t file_offset, off_t bufPtr_offset);
 
 /* -- Batch IO -- */
 
